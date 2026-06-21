@@ -4,17 +4,23 @@ import sys
 from monitor_base import SQSMonitorEngine
 
 REGION = "ap-northeast-1"
-BASE_QUEUE_URL = "https://sqs.{}.amazonaws.com/{}/{}"
-LAST_JOB_NAME = None
+BASE_QUEUE_URL = "https://sqs.{}://{}/{}"
+LAST_JOB_NAME = None  # Global variable holding the final block target name
 
 def evaluate_workflow_with_list(event_time, detail):
+    """
+    Evaluates individual event state logic across multiple chained workflow nodes.
+    
+    Returns:
+        tuple: (is_terminal_trigger, has_failed, logging_callback_function)
+    """
     job_name = detail.get("jobName")
-    job_run_id = detail.get("jobRunId")
     job_state = detail.get("state")
     detail_message = detail.get("message")
 
-    print("[MATCHED] Time: {} | Job: {} | Run ID: {} | State: {}".format(event_time, job_name, job_run_id, job_state))
+    print("[MATCHED] Time: {} | Job: {} | State: {}".format(event_time, job_name, job_state))
 
+    # Identify abort signatures anywhere or look specifically for final node completion
     is_failed_pattern = job_state in ["FAILED", "STOPPED", "TIMEOUT"]
     is_success_pattern = (job_name == LAST_JOB_NAME and job_state == "SUCCEEDED")
     is_trigger = is_failed_pattern or is_success_pattern
@@ -31,8 +37,9 @@ def evaluate_workflow_with_list(event_time, detail):
     return is_trigger, is_failed_pattern, log_callback
 
 def main():
+    # Shell argument verification (Expects 5 core inputs + at least 1 or more jobs)
     if len(sys.argv) < 6:
-        print("[ERROR] Usage: python monitor_workflow.py <QUEUE_URL> <MAX_MINUTES> <INTERVAL_SECONDS> <JOB_1> <JOB_2> ...")
+        print("[ERROR] Usage: python monitor_workflow.py <AWS_ACCOUNT> <QUEUE_NAME> <MAX_MINUTES> <INTERVAL_SECONDS> <JOB_1> <JOB_2> ...")
         sys.exit(1)
 
     aws_account = sys.argv[1]
@@ -42,6 +49,7 @@ def main():
 
     queue_url = BASE_QUEUE_URL.format(REGION, aws_account, queue_name)
 
+    # Capture remaining arguments as slice list, set absolute last element as LAST_JOB_NAME
     global LAST_JOB_NAME
     job_list = sys.argv[5:]
     LAST_JOB_NAME = job_list[-1]

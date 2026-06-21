@@ -6,11 +6,13 @@ import urllib2
 import aws_auth
 
 class AWSClient(object):
+    """Base AWS Client class that manages credentials and handles HTTP communications."""
     def __init__(self, region):
         self.region = region
         self.access_key, self.secret_key = aws_auth.load_aws_credentials()
 
     def _call_api(self, service, action_name, endpoint_url, params):
+        """Executes a POST request to AWS endpoint using Signature V4 signing."""
         parsed_url = urlparse.urlparse(endpoint_url)
         host = parsed_url.netloc
         final_endpoint_url = "https://" + host + "/"
@@ -35,11 +37,13 @@ class AWSClient(object):
                 response.close()
         except Exception, e:
             if hasattr(e, "read"):
-                print("[AWS API ERROR] {}.{} | Raw Response: {}".format(service, action_name, e.read().decode('utf-8')))
+                print("[AWS API ERROR] " + service + "." + action_name + " | Raw Response: " + str(e.read().decode('utf-8')))
             raise e
 
 class SQSClient(AWSClient):
+    """Amazon SQS client supporting batch message fetching, deleting, and visibility updates."""
     def receive_messages(self, queue_url, max_messages=10, wait_seconds=20):
+        """Fetches messages using SQS JSON 1.0 Protocol."""
         params = {"QueueUrl": queue_url, "MaxNumberOfMessages": max_messages, "WaitTimeSeconds": wait_seconds}
         try:
             return self._call_api("sqs", "ReceiveMessage", queue_url, params).get("Messages", [])
@@ -47,6 +51,7 @@ class SQSClient(AWSClient):
             return []
 
     def delete_message_batch(self, queue_url, entries):
+        """Deletes up to 10 messages from the queue in a single batch request."""
         if not entries: return
         params = {"QueueUrl": queue_url, "Entries": entries}
         try:
@@ -56,6 +61,7 @@ class SQSClient(AWSClient):
             print("[ERROR] Failed DeleteMessageBatch: {}".format(e))
 
     def change_message_visibility_batch(self, queue_url, entries):
+        """Changes visibility timeout for a batch of messages (used to return messages immediately)."""
         if not entries: return
         params = {"QueueUrl": queue_url, "Entries": entries}
         try:
@@ -65,7 +71,9 @@ class SQSClient(AWSClient):
             print("[ERROR] Failed ChangeMessageVisibilityBatch: {}".format(e))
 
 class GlueClient(AWSClient):
+    """AWS Glue client to query job and workflow run metadata."""
     def get_workflow_run_status(self, workflow_name, workflow_run_id):
+        """Retrieves the current execution status of a Glue Workflow."""
         glue_url = "https://glue." + self.region + ".amazonaws.com"
         params = {"Name": workflow_name, "RunId": workflow_run_id}
         try:
