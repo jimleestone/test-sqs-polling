@@ -118,6 +118,8 @@ class SQSClient:
             f"'{queue_url}'",
             "--entries",
             f"'{entries_json}'",  # 複雑なJSON構造を安全にシェルに渡すためシングルクォートで包む
+            "--output",
+            "json",  # 後続のパース処理を確実にするためJSON出力を明示
         ]
         try:
             self._run_aws_cmd(cmd)
@@ -152,6 +154,8 @@ class SQSClient:
             f"'{queue_url}'",
             "--entries",
             f"'{entries_json}'",
+            "--output",
+            "json",  # 後続のパース処理を確実にするためJSON出力を明示
         ]
         try:
             self._run_aws_cmd(cmd)
