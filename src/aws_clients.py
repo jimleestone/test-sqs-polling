@@ -28,7 +28,7 @@ class SQSClient:
         full_cmd_str = " ".join(cmd_list)
 
         # デバッグ用：実際にシェルで実行される完全なコマンドを出力
-        print(f'[DEBUG] Executing command: /bin/bash -l -c "{full_cmd_str}"')
+        # print(f'[DEBUG] Executing command: /bin/bash -l -c "{full_cmd_str}"')
 
         # 手動実行時と同じ環境（iam-role等）を強制同期するため、ログインシェル経由で実行。
         # -l (login) と -c (command) オプションを使用。

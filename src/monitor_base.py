@@ -16,6 +16,9 @@ class SQSMonitorEngine:
         Args:
             config (GlueJobMonitorConfig): バリデーション済みの設定オブジェクト。
         """
+        REGION = "ap-northeast-1"
+        BASE_QUEUE_URL = "https://sqs.{}.amazonaws.com/{}/{}"
+
         self.sqs = SQSClient()
         self.config = config
 
@@ -24,8 +27,8 @@ class SQSMonitorEngine:
         self.max_execute_seconds = config.max_execute_minutes * 60
 
         # アカウントIDとキュー名から、対象となるSQSの完全なURLを動的に生成
-        self.queue_url = (
-            f"https://amazonaws.com{config.aws_account}/{config.queue_name}"
+        self.queue_url = BASE_QUEUE_URL.format(
+            REGION, config.aws_account, config.queue_name
         )
 
     def _check_timeout(self):
