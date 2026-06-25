@@ -21,8 +21,9 @@ python src/monitor_single_job.py \
 	--aws-account "$AWS_ACCOUNT" \
 	--queue-name "$QUEUE_NAME" \
 	--job-list "${JOB_LIST[@]}" \
-	--max-execute-minutes "10" \
-	--loop-interval-seconds 30  \
-	--fetch-attempts "5" \
-	--fallback-sleep-seconds " 30 "
+	--max-execute-minutes " " \
+	--loop-interval-seconds 180 \
+	--fetch-attempts "3" \
+	--fallback-retry " 3" \
+	--fallback-sleep-seconds " 90"
 
