@@ -1,37 +1,32 @@
 # -*- coding: utf-8 -*-
 import json
+import logging
 import subprocess
 
+# %s プレースホルダー規約に準拠した、モジュール専用ロガーの取得
+logger = logging.getLogger(__name__)
 
-class SQSClient:
-    """AWS CLIを直接実行してAmazon SQSと通信を行うラッパークラス。
 
-    boto3などのSDKが利用できない環境において、
-    ログインシェル経由でAWS IAMロールや環境変数を同期しながら
-    SQS操作を行うために使用します。
+class SQSClient(object):
+    """AWS CLIコマンドを生のサブプロセス(ログインシェル)経由で実行し、
+
+    SQSキューと安全に通信を行うための専用クライアントクラス。
+    Python 3.6.8環境と完全な互換性を持たせています。
     """
 
     def _run_aws_cmd(self, cmd_list):
-        """ログインシェルを経由して生のAWS CLIコマンドを実行し、結果をJSONでパースする。
+        """リスト形式の引数を結合し、/bin/bash -l -c を経由して実行します。
 
-        Args:
-            cmd_list (list of str): 実行するコマンドとその引数のリスト。
-
-        Returns:
-            dict: AWS CLIから返却されたJSONデータをパースした辞書。
-                  出力が空の場合は空の辞書を返します。
-
-        Raises:
-            RuntimeError: コマンドの実行ステータスが0以外（失敗）だった場合。
+        :param cmd_list: コマンドと引数のリスト
+        :return: コマンドの標準出力（JSONデコード後のディクショナリ）
         """
         # リスト形式の引数を、シェルに渡すための1つのコマンド文字列に結合
         full_cmd_str = " ".join(cmd_list)
 
-        # デバッグ用：実際にシェルで実行される完全なコマンドを出力
-        # print(f'[DEBUG] Executing command: /bin/bash -l -c "{full_cmd_str}"')
+        # デバッグ用：実際にシェルで実行される完全なコマンドを DEBUG レベルで出力
+        logger.debug('Executing command: /bin/bash -l -c "%s"', full_cmd_str)
 
         # 手動実行時と同じ環境（iam-role等）を強制同期するため、ログインシェル経由で実行。
-        # -l (login) と -c (command) オプションを使用。
         process = subprocess.Popen(
             ["/bin/bash", "-l", "-c", full_cmd_str],
             stdout=subprocess.PIPE,
@@ -44,9 +39,11 @@ class SQSClient:
         # コマンドがエラー（戻り値が0以外）で終了した場合は例外をスロー
         if process.returncode != 0:
             raise RuntimeError(
-                f"AWS CLI command failed with code {process.returncode}.\n"
-                f'Command: /bin/bash -l -c "{full_cmd_str}"\n'
-                f"Error: {stderr_output.decode('utf-8').strip()}"
+                'AWS CLI command failed with code {}.\nCommand: /bin/bash -l -c "{}"\nError: {}'.format(
+                    process.returncode,
+                    full_cmd_str,
+                    stderr_output.decode("utf-8").strip(),
+                )
             )
 
         # 出力結果をデコードし、前後の不要な空白や改行を削除
@@ -60,24 +57,16 @@ class SQSClient:
         return json.loads(decoded_out)
 
     def receive_messages(self, queue_url, max_messages=10, wait_seconds=20):
-        """対象のSQSキューからメッセージを受信する（ロングポーリング対応）。
-
-        Args:
-            queue_url (str): 対象のSQSキューのURL。
-            max_messages (int, optional): 一度に取得する最大メッセージ数（1〜10）。デフォルトは10。
-            wait_seconds (int, optional): ロングポーリングの待機時間（秒）。デフォルトは20。
-
-        Returns:
-            list of dict: 受信したメッセージオブジェクトのリスト。
-                          失敗時、またはメッセージが空の場合は空リストを返します。
-        """
-        # aws sqs receive-message コマンドの引数を構築
+        """aws sqs receive-message を実行し、メッセージのリストを取得します。"""
+        # aws sqs receive-message コマンドの引数を構築 (F-stringを.formatに修正)
         cmd = [
             "/usr/local/bin/aws",  # パスが通っていない環境を考慮し、絶対パスで指定
             "sqs",
             "receive-message",
             "--queue-url",
-            f"'{queue_url}'",  # シェルでの変数展開やパースエラーを防ぐためシングルクォートで包む
+            "'{}'".format(
+                queue_url
+            ),  # シェルでの変数展開やパースエラーを防ぐためシングルクォートで包む
             "--max-number-of-messages",
             str(max_messages),
             "--wait-time-seconds",
@@ -91,17 +80,11 @@ class SQSClient:
             return res.get("Messages", [])
         except Exception as e:
             # メッセージ受信に失敗しても、システム全体を停止させないよう警告ログを残して続行
-            print(f"[WARN] Failed to receive messages: {e}")
+            logger.warning("Failed to receive messages: %s", e)
             return []
 
     def delete_message_batch(self, queue_url, entries):
-        """複数のSQSメッセージを一括で削除する。
-
-        Args:
-            queue_url (str): 対象のSQSキューのURL。
-            entries (list of dict): 削除対象のメッセージ情報のリスト。
-                                   （Id と ReceiptHandle を含む辞書のリスト）
-        """
+        """指定されたエントリのバッチメッセージをキューから完全に削除します。"""
         # 削除対象のエントリがない場合は何もせず終了
         if not entries:
             return
@@ -111,33 +94,29 @@ class SQSClient:
 
         # aws sqs delete-message-batch コマンドの引数を構築
         cmd = [
-            "/usr/local/bin/aws",  # 絶対パスに変更
+            "/usr/local/bin/aws",
             "sqs",
             "delete-message-batch",
             "--queue-url",
-            f"'{queue_url}'",
+            "'{}'".format(queue_url),
             "--entries",
-            f"'{entries_json}'",  # 複雑なJSON構造を安全にシェルに渡すためシングルクォートで包む
+            "'{}'".format(
+                entries_json
+            ),  # 複雑なJSON構造を安全にシェルに渡すためシングルクォートで包む
             "--output",
-            "json",  # 後続のパース処理を確実にするためJSON出力を明示
+            "json",
         ]
         try:
             self._run_aws_cmd(cmd)
-            print(
-                f"[INFO] SQS Message batch deleted successfully (Count: {len(entries)})."
+            logger.info(
+                "SQS Message batch deleted successfully (Count: %s).", len(entries)
             )
         except Exception as e:
-            # 削除の失敗はデータ重複の原因になるため、エラー（ERROR）ログとして記録
-            print(f"[ERROR] Failed DeleteMessageBatch: {e}")
+            # 削除の失敗はデータ重複の原因になるため、エラー（ERROR）ログとして例外トレースを含めて記録
+            logger.exception("Failed DeleteMessageBatch: %s", e)
 
     def change_message_visibility_batch(self, queue_url, entries):
-        """複数のSQSメッセージの可視性タイムアウトを一括で変更（キューに戻す）する。
-
-        Args:
-            queue_url (str): 対象のSQSキューのURL。
-            entries (list of dict): 変更対象のメッセージ情報のリスト。
-                                   （Id, ReceiptHandle, VisibilityTimeout を含む辞書のリスト）
-        """
+        """一致しなかったメッセージの可視性タイムアウトを変更し、即座にキューへ返却します。"""
         # 変更対象のエントリがない場合は何もせず終了
         if not entries:
             return
@@ -147,21 +126,21 @@ class SQSClient:
 
         # aws sqs change-message-visibility-batch コマンドの引数を構築
         cmd = [
-            "/usr/local/bin/aws",  # 絶対パスに変更
+            "/usr/local/bin/aws",
             "sqs",
             "change-message-visibility-batch",
             "--queue-url",
-            f"'{queue_url}'",
+            "'{}'".format(queue_url),
             "--entries",
-            f"'{entries_json}'",
+            "'{}'".format(entries_json),
             "--output",
-            "json",  # 後続のパース処理を確実にするためJSON出力を明示
+            "json",
         ]
         try:
             self._run_aws_cmd(cmd)
-            print(
-                f"[INFO] Unmatched messages released back to queue (Count: {len(entries)})."
+            logger.info(
+                "Unmatched messages released back to queue (Count: %s).", len(entries)
             )
         except Exception as e:
             # キューへの即時返却に失敗した場合の調査用ログ
-            print(f"[ERROR] Failed ChangeMessageVisibilityBatch: {e}")
+            logger.exception("Failed ChangeMessageVisibilityBatch: %s", e)

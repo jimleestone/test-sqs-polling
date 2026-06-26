@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 import argparse
+import logging
 import sys
-from typing import List, Union
+
+# モジュール専用のロガーインスタンスを生成
+logger = logging.getLogger(__name__)
 
 
 def _extract_item_type(field_type):
@@ -15,15 +18,11 @@ def _extract_item_type(field_type):
 
     type_str = str(field_type).lower()
 
-    # 1. 整数型（int / Optional[int] / Union[int, None]）の確実な判定
     if "int" in type_str:
         return int
-
-    # 2. 真偽値型（bool / Optional[bool]）の確実な判定
     if "bool" in type_str:
         return bool
 
-    # デフォルトは文字列型
     return str
 
 
@@ -35,6 +34,8 @@ def parse_args_for(config_cls, args_list=None):
     - オプションの int 引数に対するトリム後の空文字はデフォルト整数値へフォールバック。
     - オプションの int 引数に対する不正な文字列（'aaa'等）はパースエラー（cannot parse）を発生。
     """
+    logger.info("Starting CLI argument parsing stage.")
+
     parser = argparse.ArgumentParser(
         description="Dynamic CLI parser for {}".format(config_cls.__name__)
     )
@@ -116,6 +117,10 @@ def parse_args_for(config_cls, args_list=None):
                 cleaned_list = [str(item).strip() for item in raw_val]
                 if meta["is_required"] and meta["actual_type"] is str:
                     if any(not item for item in cleaned_list):
+                        logger.error(
+                            "Validation failed: list items for %s cannot be blank.",
+                            field_name,
+                        )
                         parser.error(
                             "argument --{}: list items cannot be blank.".format(
                                 field_name.replace("_", "-")
@@ -133,6 +138,9 @@ def parse_args_for(config_cls, args_list=None):
             # 前後の空白をトリムした結果、空文字であった場合
             if not cleaned_val:
                 if meta["is_required"]:
+                    logger.error(
+                        "Validation failed: required parameter %s is blank.", field_name
+                    )
                     parser.error(
                         "argument --{}: value cannot be blank or contain only spaces.".format(
                             field_name.replace("_", "-")
@@ -148,10 +156,13 @@ def parse_args_for(config_cls, args_list=None):
                 # 空文字ではない値が渡された場合
                 if meta["actual_type"] is int:
                     try:
-                        # 正常な数値文字列であれば int 型へキャスト
                         final_dict[field_name] = int(cleaned_val)
                     except ValueError:
-                        # 【修正点】'aaa' や 'ddd' などの不正な文字列は、オプション・必須を問わず確実にパースエラーにする
+                        logger.error(
+                            "Validation failed: cannot parse value %r for %s as int.",
+                            raw_val,
+                            field_name,
+                        )
                         parser.error(
                             "argument --{}: cannot parse {!r} as an integer value.".format(
                                 field_name.replace("_", "-"), raw_val
@@ -160,4 +171,5 @@ def parse_args_for(config_cls, args_list=None):
                 else:
                     final_dict[field_name] = cleaned_val
 
+    logger.info("Successfully completed CLI parsing logic layer.")
     return config_cls(**final_dict)

@@ -38,15 +38,17 @@ class GlueJobMonitorConfig(object):
     }
 
     def __init__(self, **kwargs):
-        # メタデータに従って値をインスタンス変数にセット
+        """メタデータに従って引数から値を抽出し、不変インスタンス変数を初期化します。"""
+        # メタデータ仕様のキーに従って値をインスタンス変数にセット
         for key in self._FIELDS_SPEC:
             object.__setattr__(self, key, kwargs.get(key))
 
     def __setattr__(self, key, value):
-        # frozen=True と同じ不変（Immutable）特性を再現
+        """frozen=True と同じ不変（Immutable）特性を再現し、変更を禁止します。"""
         raise AttributeError("GlueJobMonitorConfig instances are immutable")
 
     def __repr__(self):
+        """Python 3.6.8互換の文字列表現フォーマット。"""
         return "GlueJobMonitorConfig({})".format(
             ", ".join("{}={!r}".format(k, getattr(self, k)) for k in self._FIELDS_SPEC)
         )
