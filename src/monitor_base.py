@@ -13,7 +13,7 @@ class SQSMonitorEngine(object):
     """SQSメッセージを取得し、Glueジョブの進捗検証とタイムアウトを常駐監視するコアエンジンクラス。"""
 
     REGION = "ap-northeast-1"
-    BASE_QUEUE_URL = "https://sqs.{region}.amazonaws.com//{aws_account}/{queue_name}"
+    BASE_QUEUE_URL = "https://sqs.{region}.amazonaws.com/{aws_account}/{queue_name}"
     BASE_QUEUE_URL_DEV = "http://localhost:4566/{aws_account}/{queue_name}"
 
     def __init__(self, config):
