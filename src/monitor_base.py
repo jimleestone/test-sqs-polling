@@ -68,7 +68,7 @@ class SQSMonitorEngine(object):
             messages = self.sqs.receive_messages(
                 self.queue_url,
                 max_messages=10,
-                wait_seconds=1,
+                wait_seconds=20,
             )
             if messages:
                 all_messages.extend(messages)

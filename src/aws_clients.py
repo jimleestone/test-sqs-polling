@@ -40,28 +40,33 @@ class SQSClient(object):
             stderr=subprocess.PIPE,
         )
 
-        # コマンドの実行完了を待ち、標準出力と標準エラー出力を取得
-        stdout_output, stderr_output = process.communicate()
-
-        # コマンドがエラー（戻り値が0以外）で終了した場合は例外をスロー
-        if process.returncode != 0:
-            raise RuntimeError(
-                'AWS CLI command failed with code {}.\nCommand: /bin/bash -l -c "{}"\nError: {}'.format(
-                    process.returncode,
-                    full_cmd_str,
-                    stderr_output.decode("utf-8").strip(),
+        try:
+            # コマンドの実行完了を待ち、標準出力と標準エラー出力を取得
+            # Python 3.6以降対応のタイムアウト制御）
+            stdout_output, stderr_output = process.communicate(timeout=30)
+            # コマンドがエラー（戻り値が0以外）で終了した場合は例外をスロー
+            if process.returncode != 0:
+                raise RuntimeError(
+                    'AWS CLI command failed with code {}.\nCommand: /bin/bash -l -c "{}"\nError: {}'.format(
+                        process.returncode,
+                        full_cmd_str,
+                        stderr_output.decode("utf-8").strip(),
+                    )
                 )
-            )
 
-        # 出力結果をデコードし、前後の不要な空白や改行を削除
-        decoded_out = stdout_output.decode("utf-8").strip()
+            # 出力結果をデコードし、前後の不要な空白や改行を削除
+            decoded_out = stdout_output.decode("utf-8").strip()
 
-        # 出力が空（例：削除コマンドなど成功時に何も返さない場合）は空の辞書を返す
-        if not decoded_out:
-            return {}
+            # 出力が空（例：削除コマンドなど成功時に何も返さない場合）は空の辞書を返す
+            if not decoded_out:
+                return {}
 
-        # 取得した文字列をJSONオブジェクトに変換して返却
-        return json.loads(decoded_out)
+            # 取得した文字列をJSONオブジェクトに変換して返却
+            return json.loads(decoded_out)
+        except subprocess.TimeoutExpired:
+            process.kill()  # ゾンビ化を防ぐためプロセスを強制終了
+            stdout_output, stderr_output = process.communicate()
+            raise RuntimeError("AWS CLI command timed out after 30 seconds.")
 
     def _switch_to_dev(self, cmd: list):
         if self.is_dev:
@@ -72,7 +77,7 @@ class SQSClient(object):
                 ]
             )
 
-    def receive_messages(self, queue_url, max_messages=10, wait_seconds=3):
+    def receive_messages(self, queue_url, max_messages=10, wait_seconds=20):
         """aws sqs receive-message を実行し、メッセージのリストを取得します。"""
         # aws sqs receive-message コマンドの引数を構築 (F-stringを.formatに修正)
         cmd = [

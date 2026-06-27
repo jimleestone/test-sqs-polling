@@ -43,7 +43,7 @@ def setup_logging():
     file_handler = RotatingFileHandler(
         os.path.join(log_dir, "monitor.log"),
         maxBytes=10 * 1024 * 1024,
-        backupCount=5,
+        backupCount=10,
         encoding="utf-8",
     )
     file_handler.setFormatter(log_format)
