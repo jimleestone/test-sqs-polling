@@ -119,18 +119,17 @@ def main():
         # ステップ1: 汎用動的パーサーを呼び出して引数オブジェクトを直接生成
         config = parse_args_for(GlueJobMonitorConfig)
 
-        # 従来の print を完全に代替するプロパティデバッグログ
-        logger.info("=== [CONFIG DATA PROPERTIES AND TYPE ANALYSIS] ===")
+        logger.debug("=== [CONFIG DATA PROPERTIES AND TYPE ANALYSIS] ===")
         for prop_name in sorted(config._FIELDS_SPEC.keys()):
             prop_value = getattr(config, prop_name)
             prop_type = type(prop_value).__name__
-            logger.info(
+            logger.debug(
                 "Property: %-25s | Value: %-20s | Data Type: %s",
                 prop_name,
                 repr(prop_value),
                 prop_type,
             )
-        logger.info("==================================================")
+        logger.debug("==================================================")
 
         # ターゲット設定の総数を取得
         job_count = len(config.job_list)

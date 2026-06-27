@@ -1,0 +1,18 @@
+{
+    "version": "0",
+    "id": "12345678-1111-2222-3333-1234567890ab",
+    "detail-type": "Glue Job State Change",
+    "source": "aws.glue",
+    "account": "12456789012",
+    "time": "2026-06-27T07:33:00Z",
+    "region": "us-east-1",
+    "resources": [],
+    "detail": {
+        "jobName": "another-job",
+        "severity": "INFO",
+        "notificationType": "StateTransition",
+        "jobRunId": "jr_0123456789abcdef0123456789abcdef0123456789abcdef",
+        "message": "Job run jr_0123456789abcdef... has succeeded",
+        "state": "SUCCEEDED"
+    }
+}

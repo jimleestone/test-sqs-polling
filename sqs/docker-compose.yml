@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  floci:
+    image: floci/floci:latest
+    container_name: floci_dev
+    restart: always
+    ports:
+      - "4566:4566"
+    environment:
+      - FLOCI_DEFAULT_REGION=ap-northeast-1
+      - FLOCI_HOSTNAME=floci

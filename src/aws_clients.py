@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import json
 import logging
 import subprocess
@@ -13,6 +14,12 @@ class SQSClient(object):
     SQSキューと安全に通信を行うための専用クライアントクラス。
     Python 3.6.8環境と完全な互換性を持たせています。
     """
+
+    DEV_PROFILE = "local"
+
+    def __init__(self):
+        env_val = os.environ.get("ENV", "prod")
+        self.is_dev = env_val == "dev"
 
     def _run_aws_cmd(self, cmd_list):
         """リスト形式の引数を結合し、/bin/bash -l -c を経由して実行します。
@@ -56,7 +63,16 @@ class SQSClient(object):
         # 取得した文字列をJSONオブジェクトに変換して返却
         return json.loads(decoded_out)
 
-    def receive_messages(self, queue_url, max_messages=10, wait_seconds=20):
+    def _switch_to_dev(self, cmd: list):
+        if self.is_dev:
+            cmd.extend(
+                [
+                    "--profile",
+                    self.DEV_PROFILE,
+                ]
+            )
+
+    def receive_messages(self, queue_url, max_messages=10, wait_seconds=3):
         """aws sqs receive-message を実行し、メッセージのリストを取得します。"""
         # aws sqs receive-message コマンドの引数を構築 (F-stringを.formatに修正)
         cmd = [
@@ -64,16 +80,15 @@ class SQSClient(object):
             "sqs",
             "receive-message",
             "--queue-url",
-            "'{}'".format(
-                queue_url
-            ),  # シェルでの変数展開やパースエラーを防ぐためシングルクォートで包む
+            "'{}'".format(queue_url),
             "--max-number-of-messages",
             str(max_messages),
             "--wait-time-seconds",
             str(wait_seconds),
             "--output",
-            "json",  # 後続のパース処理を確実にするためJSON出力を明示
+            "json",
         ]
+        self._switch_to_dev(cmd)
         try:
             res = self._run_aws_cmd(cmd)
             # メッセージが存在しない場合は 'Messages' キーがないため、安全に get() を使用
@@ -100,12 +115,11 @@ class SQSClient(object):
             "--queue-url",
             "'{}'".format(queue_url),
             "--entries",
-            "'{}'".format(
-                entries_json
-            ),  # 複雑なJSON構造を安全にシェルに渡すためシングルクォートで包む
+            "'{}'".format(entries_json),
             "--output",
             "json",
         ]
+        self._switch_to_dev(cmd)
         try:
             self._run_aws_cmd(cmd)
             logger.info(
@@ -136,6 +150,7 @@ class SQSClient(object):
             "--output",
             "json",
         ]
+        self._switch_to_dev(cmd)
         try:
             self._run_aws_cmd(cmd)
             logger.info(
