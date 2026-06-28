@@ -10,7 +10,7 @@ import logging
 import sys
 import signal
 
-from argument_models import GlueJobMonitorConfig
+from argument_models import AppConfig, GlueJobMonitorConfig, GlueJobState
 from utils import parse_args_for
 from monitor_base import SQSMonitorEngine
 from logger_config import setup_logging
@@ -26,16 +26,12 @@ logger = logging.getLogger(__name__)
 # 判定するための絶対基準としてグローバル参照されます。
 LAST_JOB_NAME = None
 
-# AWS Glueジョブのライフサイクルにおける終端（終了）ステータス群
-# これらの状態を検知した場合、単一ジョブ監視は成否に関わらず監視ループを打ち切ります。
-TERMINAL_STATES = {"SUCCEEDED", "FAILED", "STOPPED", "TIMEOUT"}
-
 
 def evaluate_single_job(event_time, detail):
     """単一ジョブ監視モード専用のメッセージ評価関数。
 
     受信したEventBridge/CloudWatch Eventsのステータス変更通知を評価し、
-    対象のジョブが終端状態（TERMINAL_STATES）に達したかどうかを判定します。
+    対象のジョブが終端状態（GlueJobState）に達したかどうかを判定します。
 
     Args:
         event_time (str): イベントがAWS側で発生した日時（ISO8601形式のタイムスタンプ文字列）。
@@ -62,10 +58,10 @@ def evaluate_single_job(event_time, detail):
     )
 
     # 1. 終了トリガー判定: 現在のステータスが終端ステータス群に含まれているか
-    is_trigger = current_state in TERMINAL_STATES
+    is_trigger = GlueJobState.is_any_terminal(current_state)
 
     # 2. 失敗判定: 終端に達した際、それが「SUCCEEDED」でなければエラー（失敗）とみなす
-    is_failed = current_state != "SUCCEEDED"
+    is_failed = current_state != GlueJobState.SUCCEEDED.value
 
     # 3. 終了時コールバック定義:
     # 複数メッセージをバルクパースした際、最も新しい確定イベントのログを
@@ -113,10 +109,12 @@ def evaluate_workflow_with_list(event_time, detail):
     )
 
     # 判定パターン1: 途中のジョブであっても、1つでも失敗（FAILED/STOPPED/TIMEOUT）したら即座に全体異常終了とする
-    is_failed_pattern = job_state in ["FAILED", "STOPPED", "TIMEOUT"]
+    is_failed_pattern = GlueJobState.is_failed_terminal(job_state)
 
     # 判定パターン2: 登録された配列の「最後のジョブ」が正常終了（SUCCEEDED）したら全体完了とする
-    is_success_pattern = (job_name == LAST_JOB_NAME) and (job_state == "SUCCEEDED")
+    is_success_pattern = (job_name == LAST_JOB_NAME) and (
+        job_state == GlueJobState.SUCCEEDED.value
+    )
 
     # いずれかの終了パターンに合致した場合は、監視エンジンへ常駐ループの停止を伝達
     is_trigger = is_failed_pattern or is_success_pattern
@@ -159,13 +157,22 @@ def main():
 
     # 【重要】引数のパース中に発生するログやバリデーションエラーを確実に捕捉するため、
     # 最優先で環境変数ベースのロギングを完全確立します（ブートストラップの原則）。
-    setup_logging()
+    app_config = AppConfig.load_from_env()
+    setup_logging(app_config)
+
+    # ロギング設定後にこのモジュールのロガー名を取得
+    logger = logging.getLogger(__name__)
 
     # 【核心】OSからの停止シグナル（SIGTERM）をハンドラーにバインド
     # これにより、kill コマンドや ECS Fargate、Kubernetes 等からの停止命令を安全にキャッチします
     signal.signal(signal.SIGTERM, handle_sigterm)
 
     logger.info("Initializing Glue Job Monitor application package.")
+    logger.debug(
+        "Log Settings -> Directory: %s | Retention: %s generations",
+        app_config.log.dir,
+        app_config.log.backup_count,
+    )
 
     try:
         # 動的汎用パーサーを介して、クレンジング・フォールバック済みの不変設定オブジェクトを生成
@@ -212,7 +219,7 @@ def main():
             target_evaluator = evaluate_workflow_with_list
 
         # バリデーション済みの安全な config をインジェクションして、コア常駐監視エンジンを初期化
-        engine = SQSMonitorEngine(config)
+        engine = SQSMonitorEngine(config, app_config=app_config)
         logger.info("[START] Monitor Engine is initialized and ready.")
 
         # 選択された評価ロジック（関数オブジェクト）をコールバックとして依存注入（DI）し、監視ループを駆動

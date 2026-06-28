@@ -25,6 +25,11 @@ def _extract_item_type(field_type):
     Returns:
         type: 抽出された純粋な型クラス（int, bool, または str）。
     """
+
+    # カスタムの呼び出し可能関数（aws_account_id等）が指定されている場合は、そのまま型ハンドラーとして採用
+    if callable(field_type) and not isinstance(field_type, type):
+        return field_type
+
     # 既に純粋な型クラスそのものが渡されている場合は、再評価せずにそのまま返却
     if field_type is int or field_type is str or field_type is bool:
         return field_type
@@ -110,7 +115,11 @@ def parse_args_for(config_cls, args_list=None):
             "Registering CLI flag: %s | Required: %s | Target Type: %s",
             cli_flag_name,
             is_cli_required,
-            actual_type.__name__,
+            (
+                actual_type.__name__
+                if hasattr(actual_type, "__name__")
+                else str(actual_type)
+            ),
         )
 
         # 引数形式（配列・真偽・通常文字列）に応じた登録仕様の分岐
@@ -134,7 +143,7 @@ def parse_args_for(config_cls, args_list=None):
                 help=help_msg,
             )
         else:
-            # 【重要】Python 3.14等の内部制約に邪魔されず空文字を安全に捕捉するため、一律で str として受け止める
+            # Python内部制約に邪魔されず空文字を安全に捕捉するため、一律で str として受け止める
             parser.add_argument(
                 cli_flag_name,
                 type=str,
@@ -213,39 +222,27 @@ def parse_args_for(config_cls, args_list=None):
                 else:
                     final_dict[field_name] = cleaned_val
             else:
-                # トリム後の値が有効な文字列である場合の型キャスト判定
-                if meta["actual_type"] is int:
+                # -----------------------------------------------------------------
+                # 型コンバート ＆ カスタムドメインバリデーションの一元処理
+                # -----------------------------------------------------------------
+                # ターゲット型が int クラス、または独自の呼び出し可能オブジェクト（aws_account_id関数等）の場合
+                if meta["actual_type"] is int or callable(meta["actual_type"]):
                     try:
-                        # 正常な数値文字列であれば int 型への安全なキャストを確定
-                        final_dict[field_name] = int(cleaned_val)
-                    except ValueError:
-                        # 'aaa'等の不正な文字列が渡された場合、例外をトラップして明確なパースエラーとして異常終了
+                        # ここで int(cleaned_val) または aws_account_id(cleaned_val) を動的に実行
+                        final_dict[field_name] = meta["actual_type"](cleaned_val)
+                    except (ValueError, argparse.ArgumentTypeError) as e:
+                        # 独自のカスタム例外（ArgumentTypeError）も、通常のValueErrorもここで一網打尽に美しくキャッチ
                         logger.error(
-                            "Validation failed: cannot parse value %r for --%s as int.",
-                            raw_val,
+                            "Validation failed: --%s parsing error: %s",
                             field_name.replace("_", "-"),
+                            e,
                         )
+
+                        # 例外オブジェクトのメッセージをそのまま流用して、一貫したUXで安全終了
                         parser.error(
-                            "argument --{}: cannot parse {!r} as an integer value.".format(
-                                field_name.replace("_", "-"), raw_val
-                            )
+                            "argument --{}: {}".format(field_name.replace("_", "-"), e)
                         )
                 else:
-                    # 必須文字列に対する高度なドメインバリデーション層
-                    # -----------------------------------------------------------------
-                    # 対象フィールドが 'aws_account' であった場合、12桁かつ数値のみであるかを検証
-                    if field_name == "aws_account":
-                        if len(cleaned_val) != 12 or not cleaned_val.isdigit():
-                            # 他の引数と同様にユーザーの指定ミス（既知のエラー）のため、
-                            # スタックトレースを発生させずに一貫した error メッセージとして安全に終了させます。
-                            logger.error(
-                                "Validation failed: --aws-account must be exactly a 12-digit numeric string. Input: %r",
-                                cleaned_val,
-                            )
-                            parser.error(
-                                "argument --aws-account: aws_account must be exactly a 12-digit numeric string."
-                            )
-
                     final_dict[field_name] = cleaned_val
 
         # データクレンジングおよび型への安全なマッピングが完全に終結した最終値を詳細にダンプ

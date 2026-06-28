@@ -1,26 +1,34 @@
+# src/logger_config.py
 # -*- coding: utf-8 -*-
-"""アプリケーション全体のロギング基盤を一括制御・初期化する構成モジュール。
+"""アプリケーション全体のロギング基盤を一括初期化・制御する構成モジュール。
 
 このモジュールは、CLI引数の解析ステージが始まるよりも前の「完全な起動直後」に
-環境変数をインスペクションし、標準出力およびファイルローテーションハンドラーの
-ログレベルを一元的に確立します。
+ロードされた AppConfig の多重ネストプロパティをチェーン参照し、
+標準出力およびファイルローテーションハンドラーのログレベルとインフラ構成を一元的に確立します。
 """
 
 import logging
 from logging.handlers import RotatingFileHandler
 import os
 
+from argument_models import AppConfig
 
-def setup_logging():
-    """アプリケーション全体のロギング設定を一括初期化。
+
+def setup_logging(app_config: AppConfig):
+    """AppConfigのネストプロパティを直接チェーン参照し、システム全体のロギングを完全初期化。
 
     【ブートストラップ・運用設計規約】
-    1. CLI引数のパースエラーログを確実に捕捉するため、環境変数 'LOG_LEVEL' から起動直後にレベルを動的決定。
+    1. CLI引数のパースエラーログを確実に捕捉するため、環境変数からロードされた構成情報を最優先で適用。
     2. コンソール（標準出力）とローテーション仕様のログファイルの両方に、同一フォーマットで多重出力。
-    3. 本番運用時のディスク逼迫を防ぐため、1ファイル最大10MB、最大10世代（計100MB）のローテーションを実施。
-    4. 大量のデバッグログを発生させるサードパーティ（boto3等）のログレベルを適切に制限し、ノイズをシャットアウト。
+    3. 本番運用時のディスク逼迫を防ぐため、app_config に定義された最大MBサイズとバックアップ世代数でローテーション。
+    4. 大量のデバッグログを発生させるサードパーティ（boto3等）のログレベルを適切に制限し、自前のログの視認性を確保。
+
+    Args:
+        app_config (AppConfig): 環境変数から最速でロードが完了したネスト構造付き環境構成インスタンス。
     """
-    log_dir = "logs"
+    # 1. 多重ネストプロパティから出力先ディレクトリパスを展開（app_config.log.dir）
+    log_dir = app_config.log.dir
+
     # ログ出力先ディレクトリが存在しない場合は、書き込みエラーを防ぐため自動生成
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -31,18 +39,17 @@ def setup_logging():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # argparse のパースステージより前に評価するため、環境変数からログレベルを取得（未指定時は標準の INFO）
-    env_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-    debug_mode = env_level == "DEBUG"
+    # 2. ネストプロパティからログレベル（app_config.log.level）を取得して動的判定
+    debug_mode = app_config.log.level == "DEBUG"
 
-    # システム全体（Root Logger）に適用するアクティブなログレベルの決定
+    # アプリケーション全体（Root Logger）に適用するアクティブなログレベルの決定
     active_level = logging.DEBUG if debug_mode else logging.INFO
 
     root_logger = logging.getLogger()
     root_logger.setLevel(active_level)
 
-    # プログラムの二重起動や、モジュールの再読み込み時に同一ハンドラーが重複登録されて
-    # ログメッセージが画面に2重、3重に出力されてしまう不具合を防止するためのクリア処理
+    # プログラムの二重起動やモジュールの再読み込み時に、同一ハンドラーが重複登録されて
+    # ログメッセージがコンソールやファイルに2重・3重に出力されてしまう不具合を防止するためのクリア処理
     if root_logger.handlers:
         root_logger.handlers = []
 
@@ -57,12 +64,16 @@ def setup_logging():
     # -------------------------------------------------------------------------
     # [ハンドラー2: ファイル出力（ローテーション仕様）の設定]
     # -------------------------------------------------------------------------
-    # maxBytes: 10 * 1024 * 1024 (10MBに達した時点で自動ローテーション)
-    # backupCount: 10 (monitor.log.1 から monitor.log.10 まで最大10世代の過去ログを維持)
+    # ファイル名、MBサイズ、世代数をすべてネストプロパティから同期展開
+    full_log_path = os.path.join(log_dir, app_config.log.file_name)
+
+    # 単位をメガバイトからバイト単位へ内部クレンジング (max_size_mb * 1024 * 1024)
+    max_bytes = app_config.log.max_size_mb * 1024 * 1024
+
     file_handler = RotatingFileHandler(
-        os.path.join(log_dir, "monitor.log"),
-        maxBytes=10 * 1024 * 1024,
-        backupCount=10,
+        full_log_path,
+        maxBytes=max_bytes,
+        backupCount=app_config.log.backup_count,
         encoding="utf-8",
     )
     file_handler.setFormatter(log_format)

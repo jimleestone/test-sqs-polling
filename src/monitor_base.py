@@ -11,6 +11,7 @@ import os
 import sys
 import time
 from aws_clients import SQSClient
+from argument_models import AppConfig, GlueJobMonitorConfig, GlueJobState, AppEnv
 
 # %s プレースホルダー規約に準拠した、モジュール専用ロガーの取得
 logger = logging.getLogger(__name__)
@@ -23,46 +24,34 @@ class SQSMonitorEngine(object):
     """
 
     # 本番運用（ENV=prod）時に対象とする東京リージョンコード
-    REGION = "ap-northeast-1"
 
-    # 本番（AWS実環境）および開発（LocalStack等のコンテナ環境）のQueue URL基本フォーマット
-    BASE_QUEUE_URL = "https://sqs.{region}.amazonaws.com/{aws_account}/{queue_name}"
-    BASE_QUEUE_URL_DEV = "http://localhost:4566/{aws_account}/{queue_name}"
-
-    def __init__(self, config):
-        """設定オブジェクトをインジェクションし、環境に応じた接続URLとタイムアウト制約を初期化。
-
-        Args:
-            config (GlueJobMonitorConfig): 汎用動的パーサーによって生成された不変設定インスタンス。
+    def __init__(self, config: GlueJobMonitorConfig, app_config: AppConfig):
         """
-        env_val = os.environ.get("ENV", "prod")
-        self.is_dev = env_val == "dev"
-
-        self.sqs = SQSClient()
+        :param config: GlueJobMonitorConfigのインスタンス
+        :param app_config: ロード済みの AppConfig インスタンス（AWS接続仕様を内包）
+        """
+        self.sqs = SQSClient(app_config)
         self.config = config
-
-        # 起動時点のタイムスタンプを固定し、全体の絶対タイムアウト判定の基準とします
+        self.app_config = app_config
         self.start_time = time.time()
         self.max_execute_seconds = config.max_execute_minutes * 60
 
         # -------------------------------------------------------------------------
-        # [接続URLの環境動的切り替えステージ]
+        # [インフラ情報の多重ネストプロパティチェーン展開]
         # -------------------------------------------------------------------------
-        # ENV=dev の場合は、本番のAWS SQSではなく、ローカルの疑似コンテナ環境のエンドポイントを
-        # 自動選定することで、ローカルPC内だけで安全かつコストをかけずに疎通検証ができる設計です。
-        if self.is_dev:
-            self.queue_url = self.BASE_QUEUE_URL_DEV.format(
+        # ハードコードされた固定文字列は消滅し、すべて app_config.aws から安全に動的解決されます
+        if app_config.env == AppEnv.DEV.value:
+            self.queue_url = app_config.aws.sqs_base_url_dev.format(
                 aws_account=config.aws_account, queue_name=config.queue_name
             )
         else:
-            self.queue_url = self.BASE_QUEUE_URL.format(
-                region=self.REGION,
+            self.queue_url = app_config.aws.sqs_base_url.format(
+                region=app_config.aws.region,
                 aws_account=config.aws_account,
                 queue_name=config.queue_name,
             )
-
         logger.info(
-            "SQSMonitorEngine core initialized successfully. Target SQS URL: %s",
+            "SQSMonitorEngine fully bootstapped. Destination target QueueURL: %s",
             self.queue_url,
         )
 
@@ -239,9 +228,16 @@ class SQSMonitorEngine(object):
                         event_time = event_body.get("time", "Unknown-Time")
                         detail = event_body.get("detail", {})
                         job_name = detail.get("jobName")
+                        job_state = detail.get("state")
 
                         # イベント内のジョブ名が、自身が監視すべきターゲットリスト（JOB_LIST）に含まれているかチェック
                         if job_name in self.config.job_list:
+                            if GlueJobState.is_unknown_state(job_state):
+                                logger.warning(
+                                    "Received non-strict active state string from SQS: %r. Processing downstream.",
+                                    job_state,
+                                )
+
                             logger.debug(
                                 "Matched target job event. Parsing payload for: %s",
                                 job_name,
