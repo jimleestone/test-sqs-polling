@@ -260,7 +260,7 @@ def parse_args_for(config_cls, args_list=None):
     return config_cls(**final_dict)
 
 
-def get_full_jitter_delay(attempt, base=5.0, max_delay=60.0):
+def get_full_jitter_delay(attempt, base=5.0, max_delay=60.0) -> float:
     # type: (int, float, float) -> float
     """AWS推奨のFull Jitterアルゴリズム（完全ランダム化付き指数バックオフ）。"""
     # 指数関数的に最大幅を計算し、max_delayで天井制限
@@ -272,8 +272,7 @@ def get_full_jitter_delay(attempt, base=5.0, max_delay=60.0):
     return sleep_time
 
 
-def sleep_with_jitter(base_delay, jitter_range=0.3):
-    # type: (float, float) -> float
+def sleep_with_jitter(base_delay, jitter_range=0.5) -> float:
     """基準値から最大(1+jitter_range)倍の上振れジッターを付与（下限30秒ガード付き）。"""
     # 基準値からランダムに上振れ時間を動的計算
     delay = base_delay * random.uniform(1.0, 1.0 + jitter_range)
