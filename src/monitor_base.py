@@ -12,6 +12,7 @@ import sys
 import time
 from aws_clients import SQSClient
 from argument_models import AppConfig, GlueJobMonitorConfig, GlueJobState, AppEnv
+from utils import get_full_jitter_delay, sleep_with_jitter
 
 # %s プレースホルダー規約に準拠した、モジュール専用ロガーの取得
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class SQSMonitorEngine(object):
         )
 
         if elapsed > self.max_execute_seconds:
-            # 【理由】処理の強制停止を伴う重大なタイムアウト突破イベントのため、視認性の高い高レベルのerrorで出力
+            # 処理の強制停止を伴う重大なタイムアウト突破イベントのため、視認性の高い高レベルのerrorで出力
             logger.error("==================================================")
             logger.error(
                 "⏰ TIMEOUT: Exceeded max execute time (%s mins).",
@@ -96,6 +97,15 @@ class SQSMonitorEngine(object):
         logger.info("[FETCH] Sending ReceiveMessage request to SQS via Native CLI...")
 
         for attempt in range(self.config.fetch_attempts):
+            if attempt > 0:
+                # 次のattempt開始する前にfull_jitterのショートウェイトを配置
+                attempt_wait = get_full_jitter_delay(attempt)
+                logger.debug(
+                    "[ATTEMPT-WAIT] Sleeping for %.1f seconds between chunk attempts to clear pipeline...",
+                    attempt_wait,
+                )
+                time.sleep(attempt_wait)
+
             # 【DEBUG】短期連続ポーリングのサイクルカウンタを詳細にダンプ
             logger.debug(
                 "Executing sequential fetch chunk attempt %s/%s",
@@ -161,6 +171,21 @@ class SQSMonitorEngine(object):
             elif action_type == "RELEASE":
                 self.sqs.change_message_visibility_batch(self.queue_url, chunk)
 
+    def _loop_sleep(self):
+        """上振れ乗算ジッターを加え、動的にループ待機を実行。"""
+        if self.config.loop_interval_seconds > 0:
+
+            # 外部のヘルパー関数を呼び出し、周期の衝突（ライブロック）を完全破砕
+            loop_wait = sleep_with_jitter(self.config.loop_interval_seconds)
+
+            # %s プレースホルダー規約に準拠して最終スリープ秒数を出力
+            logger.info(
+                "[INTERVAL] Sleeping for %s seconds...",
+                loop_wait,
+            )
+
+            time.sleep(loop_wait)
+
     def run(self, evaluator_func):
         """メインの常駐監視ポーリングループ。依存注入された評価関数を呼び出し、常駐サイクルを回します。
 
@@ -188,12 +213,8 @@ class SQSMonitorEngine(object):
 
                 # キューにメッセージが1件もない場合は、インターバル待機を挟んで次サイクルへ即座に継続
                 if not all_fetched_messages:
-                    if self.config.loop_interval_seconds > 0:
-                        logger.info(
-                            "[INTERVAL] Sleeping for %s seconds...",
-                            self.config.loop_interval_seconds,
-                        )
-                        time.sleep(self.config.loop_interval_seconds)
+                    # 次のloop開始する前に少し休憩させて
+                    self._loop_sleep()
                     continue
 
                 logger.info(
@@ -232,7 +253,7 @@ class SQSMonitorEngine(object):
 
                         # イベント内のジョブ名が、自身が監視すべきターゲットリスト（JOB_LIST）に含まれているかチェック
                         if job_name in self.config.job_list:
-                            if GlueJobState.is_unknown_state(job_state):
+                            if not GlueJobState.is_any_terminal(job_state):
                                 logger.warning(
                                     "Received non-strict active state string from SQS: %r. Processing downstream.",
                                     job_state,
@@ -266,7 +287,7 @@ class SQSMonitorEngine(object):
                             back_to_queue_entries.append(entry)
 
                     except Exception as e:
-                        # 【理由】特定の1メッセージのJSON破損等の失敗であり、ループ全体を止める必要はないため error を選定
+                        # 特定の1メッセージのJSON破損等の失敗であり、ループ全体を止める必要はないため error を選定
                         logger.error(
                             "[ERROR] Failed to process individual message context payload: %s",
                             e,
@@ -310,15 +331,11 @@ class SQSMonitorEngine(object):
                 # 正常に1サイクルを完了したため、エラーカウンタをクリーンにリセット
                 current_fallback_count = 0
 
-                if self.config.loop_interval_seconds > 0:
-                    logger.info(
-                        "[INTERVAL] Sleeping for %s seconds...",
-                        self.config.loop_interval_seconds,
-                    )
-                    time.sleep(self.config.loop_interval_seconds)
+                # 次のloop開始する前に少し休憩させて
+                self._loop_sleep()
 
             except SystemExit as se:
-                # 【理由】終了コード（exit_code）を伴う正常/異常終了（sys.exit）命令は、
+                # 終了コード（exit_code）を伴う正常/異常終了（sys.exit）命令は、
                 # 下の一般例外（Exception）で捕獲せず、そのまま最上位のランタイムへ透過させて落とす。
                 sys.exit(se.code)
 
@@ -326,7 +343,7 @@ class SQSMonitorEngine(object):
                 # AWS CLIコマンド自体のクラッシュやインフラ障害、一時的なネットワーク断線をキャッチ
                 current_fallback_count += 1
 
-                # 【理由】常駐ループの継続を脅かす深刻なエラーのため、視認性の高い error レベルを採用
+                # 常駐ループの継続を脅かす深刻なエラーのため、視認性の高い error レベルを採用
                 logger.error(
                     "[CRITICAL] Unknown error collapsed polling loop: %s (Fallback Retry: %s/%s)",
                     e,
@@ -336,7 +353,7 @@ class SQSMonitorEngine(object):
 
                 # 連続リトライ上限を超えた場合は、システムダウンとして永久停止を宣言
                 if current_fallback_count > self.config.fallback_retry:
-                    # 【理由】デーモンの「死亡・離脱」を意味する最大級のシステム障害のため、アラート検知用の critical を選定
+                    # デーモンの「死亡・離脱」を意味する最大級のシステム障害のため、アラート検知用の critical を選定
                     logger.critical(
                         "[FATAL] Polling loop collapsed permanently. Exceeded max fallback retry count (%s). Exiting...",
                         self.config.fallback_retry,
@@ -344,4 +361,14 @@ class SQSMonitorEngine(object):
                     sys.exit(1)
 
                 # 自己修復のためのクールダウン時間を置いてから次サイクルで再試行
-                time.sleep(self.config.fallback_sleep_seconds)
+                # 次のretry開始する前にfull_jitterのsleepを配置
+                retry_wait = get_full_jitter_delay(
+                    current_fallback_count,
+                    self.config.fallback_sleep_seconds,
+                    self.max_execute_seconds,
+                )
+                logger.debug(
+                    "[RETRY-WAIT] Sleeping for %.1f seconds before retry in next main loop...",
+                    retry_wait,
+                )
+                time.sleep(retry_wait)

@@ -10,8 +10,12 @@ import argparse
 from enum import Enum
 import os
 import sys
+import logging
 from typing import List, Optional
 from functools import lru_cache
+
+# %s プレースホルダー規約に準拠した、モジュール専用ロガーの取得
+logger = logging.getLogger(__name__)
 
 
 class AppEnv(Enum):
@@ -44,6 +48,7 @@ class GlueJobState(Enum):
     @lru_cache(maxsize=None)
     def is_any_terminal(cls, state: str) -> bool:
         """渡された生のステータス文字列が、いずれかの終端状態に達しているかを判定します。"""
+        logger.debug("Calling check terminal state, input state string: %s", state)
         return state in cls.__members__
 
     @classmethod
@@ -53,13 +58,8 @@ class GlueJobState(Enum):
         failed_states = {
             state.value for state in GlueJobState if state is not GlueJobState.SUCCEEDED
         }
+        logger.debug("Calling check failed state, input state string: %s", state)
         return state in failed_states
-
-    @classmethod
-    @lru_cache(maxsize=None)
-    def is_unknown_state(cls, state: str) -> bool:
-        """渡された生のステータス文字列が、想定外のものであった。"""
-        return state not in cls.__members__
 
 
 class LogConfig(object):

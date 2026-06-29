@@ -6,12 +6,13 @@ set -euo pipefail # エラー・未定義変数参照・パイプエラー時に
 
 # 1. 運用環境およびターゲット変数の定義
 export ENV="dev"
-export LOG_LEVEL="INFO"
+export LOG_LEVEL="DEBUG"
 AWS_ACCOUNT="000000000000"  # 379867926836
 QUEUE_NAME="my-local-queue" # test-sqs-monitor
 JOB_STR="  test-sqs  another-job "
+# JOB_STR="  test-single-job "
 MAX_EXECUTE_MINUTES="60"
-LOOP_INTERVAL_SECONDS="30"
+LOOP_INTERVAL_SECONDS="180"
 
 read -ra JOB_LIST <<<"$JOB_STR"
 
@@ -30,7 +31,7 @@ fi
 trap 'rm -rf "$LOCK_DIR"' EXIT
 
 # 3. 統合エントリーポイントへの接続・完全同期実行
-echo "[START] Launching Glue Job Monitor for [${LAST_JOB_NAME}]..."
+echo "[START] Launching Glue Job Monitor for [${JOB_LIST[@]}]..."
 
 # Pythonが終了コード1（失敗）を返した際、trapが即座に暴発するのを防ぐため一時的に安全装置を解除
 set +e
@@ -60,8 +61,3 @@ else
 	echo "[FAILURE] Glue Job Pipeline failed or timed out. (Code: ${EXIT_CODE})"
 	exit $EXIT_CODE
 fi
-
-# aws sqs send-message \
-#   --profile local \
-#   --queue-url http://floci:4566/000000000000/my-local-queue \
-#   --message-body file://message.json

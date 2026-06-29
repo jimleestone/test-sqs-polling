@@ -8,6 +8,7 @@
 import argparse
 import logging
 import sys
+import random
 
 # %s プレースホルダー規約に準拠した、モジュール専用ロガーの取得
 logger = logging.getLogger(__name__)
@@ -257,3 +258,27 @@ def parse_args_for(config_cls, args_list=None):
 
     # 完全にクレンジングと型安全が保証されたキーワード引数を展開（**）して構成インスタンスを生成
     return config_cls(**final_dict)
+
+
+def get_full_jitter_delay(attempt, base=5.0, max_delay=60.0):
+    # type: (int, float, float) -> float
+    """AWS推奨のFull Jitterアルゴリズム（完全ランダム化付き指数バックオフ）。"""
+    # 指数関数的に最大幅を計算し、max_delayで天井制限
+    temp = min(max_delay, base * (2**attempt))
+
+    # 0 から最大幅の間で完全ランダムな秒数を決定（インフラの衝突を平滑化）
+    sleep_time = random.uniform(0, temp)
+
+    return sleep_time
+
+
+def sleep_with_jitter(base_delay, jitter_range=0.3):
+    # type: (float, float) -> float
+    """基準値から最大(1+jitter_range)倍の上振れジッターを付与（下限30秒ガード付き）。"""
+    # 基準値からランダムに上振れ時間を動的計算
+    delay = base_delay * random.uniform(1.0, 1.0 + jitter_range)
+
+    # 【セーフティ】30秒未満の高速連打による課金破産を物理遮断
+    delay = max(30.0, delay)
+
+    return delay

@@ -144,7 +144,7 @@ def handle_sigterm(signum, _):
         "Received OS Signal [%s] (SIGTERM). Initiating graceful shutdown...", signum
     )
     # SystemExit(0) を発生させ、現在のループ周期の処理が終わり次第、クリーンに終了させる
-    sys.exit(0)
+    sys.exit(128 + signum)
 
 
 def main():
