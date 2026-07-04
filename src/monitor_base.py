@@ -101,7 +101,7 @@ class SQSMonitorEngine(object):
                 # 次のattempt開始する前にfull_jitterのショートウェイトを配置
                 attempt_wait = get_full_jitter_delay(attempt)
                 logger.debug(
-                    "[ATTEMPT-WAIT] Sleeping for %.1f seconds between chunk attempts to clear pipeline...",
+                    "[ATTEMPT-WAIT] Sleeping for %s seconds between chunk attempts to clear pipeline...",
                     f"{attempt_wait:.2f}",
                 )
                 time.sleep(attempt_wait)
@@ -367,7 +367,7 @@ class SQSMonitorEngine(object):
                     max_delay=self.config.fallback_sleep_seconds,
                 )
                 logger.debug(
-                    "[RETRY-WAIT] Sleeping for %.1f seconds before retry in next main loop...",
+                    "[RETRY-WAIT] Sleeping for %s seconds before retry in next main loop...",
                     f"{retry_wait:.2f}",
                 )
                 time.sleep(retry_wait)

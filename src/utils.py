@@ -27,21 +27,29 @@ def _extract_item_type(field_type):
         type: 抽出された純粋な型クラス（int, bool, または str）。
     """
 
-    # カスタムの呼び出し可能関数（aws_account_id等）が指定されている場合は、そのまま型ハンドラーとして採用
-    if callable(field_type) and not isinstance(field_type, type):
+    type_str = str(field_type).lower()
+
+    # typing オブジェクトの callable 誤認による突き抜けを完全に遮断
+    # 文字列に 'typing.' が含まれて「いない」ピュアなカスタム関数（lambda等）のみを関数として救出します。
+    if callable(field_type) and "typing." not in type_str:
         return field_type
 
     # 既に純粋な型クラスそのものが渡されている場合は、再評価せずにそのまま返却
     if field_type is int or field_type is str or field_type is bool:
         return field_type
 
-    type_str = str(field_type).lower()
+    # List 型ヒントのノイズ汚染を最優先で遮断
+    if "list" in type_str:
+        return str
 
-    # 1. 整数型（int / Optional[int] / Union[int, None]）の確実な判定
+    # 文字列ベースでのプリミティブ型判定
+    # typing.Union の内部キャッシュや属性バグに依存せず、型表現文字列から確実に
+    # ターゲットとなるプリミティブクラス（int / bool）を引きずり出して確定させます。
+    # 整数型（int / Optional[int] / Union[int, None]）の確実な判定
     if "int" in type_str:
         return int
 
-    # 2. 真偽値型（bool / Optional[bool] / Union[bool, None]）の確実な判定
+    # 真偽値型（bool / Optional[bool] / Union[bool, None]）の確実な判定
     if "bool" in type_str:
         return bool
 

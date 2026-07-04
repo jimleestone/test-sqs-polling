@@ -4,6 +4,7 @@ services:
   floci:
     image: floci/floci:latest
     container_name: floci_dev
+    hostname: floci
     restart: always
     ports:
       - "4566:4566"

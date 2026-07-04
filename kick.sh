@@ -7,19 +7,33 @@ set -euo pipefail # エラー・未定義変数参照・パイプエラー時に
 # 1. 運用環境およびターゲット変数の定義
 export ENV="dev"
 export LOG_LEVEL="DEBUG"
-AWS_ACCOUNT="000000000000"  # 379867926836
-QUEUE_NAME="my-local-queue" # test-sqs-monitor
-JOB_STR="  test-sqs  another-job "
-# JOB_STR="  test-single-job "
-MAX_EXECUTE_MINUTES="60"
-LOOP_INTERVAL_SECONDS="180"
+export AWS_SQS_BASE_URL_DEV="http://floci:4566"
+export LOG_DIR="logs"
+export LOG_FILE_NAME="glue_job_monitor.log"
+export LOG_MAX_SIZE_MB="10"
+export LOG_BACKUP_COUNT=10
 
-read -ra JOB_LIST <<<"$JOB_STR"
+AWS_ACCOUNT="${1-}"          # 379867926836
+QUEUE_NAME="${2-}"           # test-sqs-monitor
+read -ra JOB_LIST <<<"${3-}" # 配列として受け取るために read -ra を使用
+MAX_EXECUTE_MINUTES="${4-}"
+LOOP_INTERVAL_SECONDS="${5-}"
+FETCH_ATTEMPTS="${6-}"
+FALLBACK_RETRY="${7-}"
+FALLBACK_SLEEP_SECONDS="${8-}"
 
 # 2. 最終ジョブ名の動的抽出と、mkdirによるアトミックな二重起動防止
-LAST_INDEX=$((${#JOB_LIST[@]} - 1))
-LAST_JOB_NAME="${JOB_LIST[$LAST_INDEX]}"
+LAST_JOB_NAME=""
+if ((${#JOB_LIST[@]} == 0)); then
+	echo "[WARNING] JOB_LIST is empty"
+	LAST_JOB_NAME="unknown"
+else
+	LAST_INDEX=$((${#JOB_LIST[@]} - 1))
+	LAST_JOB_NAME="${JOB_LIST[$LAST_INDEX]}"
+fi
 LOCK_DIR="/tmp/glue_job_monitor_${LAST_JOB_NAME}.lock"
+
+echo "[INFO] lock directory: ${LOCK_DIR}"
 
 # OS仕様（アトミック性）を利用した二重起動ガード。これだけで100%防げます。
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -42,9 +56,9 @@ python src/monitor.py \
 	--job-list "${JOB_LIST[@]}" \
 	--max-execute-minutes "$MAX_EXECUTE_MINUTES" \
 	--loop-interval-seconds "$LOOP_INTERVAL_SECONDS" \
-	--fetch-attempts "3" \
-	--fallback-retry "3" \
-	--fallback-sleep-seconds "60"
+	--fetch-attempts "$FETCH_ATTEMPTS" \
+	--fallback-retry "$FALLBACK_RETRY" \
+	--fallback-sleep-seconds "$FALLBACK_SLEEP_SECONDS"
 
 # 同期実行したPythonの終了結果コード（0:成功、1:失敗）を確実に捕捉
 EXIT_CODE=$?

@@ -15,3 +15,10 @@ aws sqs send-message \
 	--profile local \
 	--queue-url http://floci:4566/000000000000/my-local-queue \
 	--message-body file://message.json
+
+# create queue with visibility timeout
+aws sqs create-queue \
+  --profile local \
+  --queue-name my-local-queue \
+  --attributes VisibilityTimeout=60
+  
