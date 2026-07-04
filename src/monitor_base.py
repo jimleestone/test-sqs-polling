@@ -66,8 +66,8 @@ class SQSMonitorEngine(object):
 
         # 【DEBUG】毎サイクルのタイムアウトまでの残り猶予時間を可視化
         logger.debug(
-            "Timeout healthcheck: Elapsed %.2f / Total %s seconds",
-            elapsed,
+            "Timeout healthcheck: Elapsed %s / Total %s seconds",
+            f"{elapsed:.2f}",
             self.max_execute_seconds,
         )
 
