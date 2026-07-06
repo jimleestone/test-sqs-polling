@@ -7,6 +7,7 @@
 標準出力およびファイルローテーションハンドラーのログレベルとインフラ構成を一元的に確立します。
 """
 
+import sys
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -56,7 +57,7 @@ def setup_logging(app_config: AppConfig):
     # -------------------------------------------------------------------------
     # [ハンドラー1: 標準出力（コンソール）の設定]
     # -------------------------------------------------------------------------
-    console_handler = logging.StreamHandler()
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(log_format)
     console_handler.setLevel(active_level)
     root_logger.addHandler(console_handler)

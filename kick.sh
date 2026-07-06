@@ -12,6 +12,7 @@ export LOG_DIR="logs"
 export LOG_FILE_NAME="glue_job_monitor.log"
 export LOG_MAX_SIZE_MB="10"
 export LOG_BACKUP_COUNT=10
+export PYTHONIOENCODING="utf-8"
 
 AWS_ACCOUNT="${1-}"          # 379867926836
 QUEUE_NAME="${2-}"           # test-sqs-monitor
@@ -50,7 +51,7 @@ echo "[START] Launching Glue Job Monitor for [${JOB_LIST[@]}]..."
 # Pythonが終了コード1（失敗）を返した際、trapが即座に暴発するのを防ぐため一時的に安全装置を解除
 set +e
 
-python src/monitor.py \
+python -u src/monitor.py \
 	--aws-account "$AWS_ACCOUNT" \
 	--queue-name "$QUEUE_NAME" \
 	--job-list "${JOB_LIST[@]}" \
