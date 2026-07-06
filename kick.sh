@@ -34,13 +34,35 @@ else
 fi
 LOCK_DIR="/tmp/glue_job_monitor_${LAST_JOB_NAME}.lock"
 
-echo "[INFO] lock directory: ${LOCK_DIR}"
+# ロックディレクトリが既に存在する場合、過去に強制停止（SIGKILL）された残骸かどうかを生存チェック
+if [ -d "$LOCK_DIR" ]; then
+	if [ -f "${LOCK_DIR}/pid" ]; then
+		PAST_PID=$(cat "${LOCK_DIR}/pid")
+
+		# kill -0 は、プロセスにシグナルを送らずに「OS上に存在するか」だけを調べるコマンドです
+		if kill -0 "$PAST_PID" 2>/dev/null; then
+			# 過去のプロセスが本当に今も生きている ──> 本物の二重起動なので安全にブロック
+			echo "[ERROR] Glue Job Monitor for [${LAST_JOB_NAME}] is already running with PID: ${PAST_PID}. Aborting."
+			exit 1
+		else
+			# 過去のプロセスは既にOS上に存在しない ──> リモートキックで強制停止された残骸と断定
+			echo "[WARN] Stale lock directory detected from past forced-termination (Forced by remote kick). Cleaning up automatically..."
+			rm -rf "$LOCK_DIR"
+		fi
+	else
+		# PIDファイルがない異常なフォルダ残りの場合も安全のために一回削除
+		rm -rf "$LOCK_DIR"
+	fi
+fi
 
 # OS仕様（アトミック性）を利用した二重起動ガード。これだけで100%防げます。
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 	echo "[ERROR] Glue Job Monitor for [${LAST_JOB_NAME}] is already running. Aborting."
 	exit 1
 fi
+
+# ロックディレクトリの中に、現在のシェル自身のPIDを書き込んで遺しておく（次回の生存チェック用）
+echo $$ >"${LOCK_DIR}/pid"
 
 # どんな理由で終了（正常、失敗、強制停止）しても、死ぬ直前に必ずロックを解除する遺言登録
 trap 'rm -rf "$LOCK_DIR"' EXIT
