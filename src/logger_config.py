@@ -12,7 +12,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 
-from argument_models import AppConfig
+from argument_models import AppConfig, LogLevel
 
 
 def setup_logging(app_config: AppConfig):
@@ -41,7 +41,7 @@ def setup_logging(app_config: AppConfig):
     )
 
     # 2. ネストプロパティからログレベル（app_config.log.level）を取得して動的判定
-    debug_mode = app_config.log.level == "DEBUG"
+    debug_mode = app_config.log.level == LogLevel.DEBUG.value
 
     # アプリケーション全体（Root Logger）に適用するアクティブなログレベルの決定
     active_level = logging.DEBUG if debug_mode else logging.INFO

@@ -5,13 +5,6 @@
 set -euo pipefail # エラー・未定義変数参照・パイプエラー時に即時安全停止
 
 # 1. 運用環境およびターゲット変数の定義
-export ENV="dev"
-export LOG_LEVEL="DEBUG"
-export AWS_SQS_BASE_URL_DEV="http://floci:4566"
-export LOG_DIR="logs"
-export LOG_FILE_NAME="glue_job_monitor.log"
-export LOG_MAX_SIZE_MB="10"
-export LOG_BACKUP_COUNT=10
 export PYTHONIOENCODING="utf-8"
 
 AWS_ACCOUNT="${1-}"          # 379867926836

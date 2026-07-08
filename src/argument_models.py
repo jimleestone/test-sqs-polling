@@ -65,7 +65,7 @@ class GlueJobState(Enum):
 class LogConfig(object):
     """ロギングの設定パラメータをネストして保持する不変構造クラス。"""
 
-    level = "INFO"  # type: str
+    level = LogLevel.INFO.value  # type: str
     dir = "logs"  # type: str
     file_name = "monitor.log"  # type: str
     max_size_mb = 10  # type: int
@@ -87,8 +87,8 @@ class AWSConfig(object):
     """AWSのインフラ接続トポロジーおよび認証プロファイルをネストして保持する不変構造クラス。"""
 
     region = "ap-northeast-1"  # type: str
-    sqs_base_url = ""  # type: str
-    sqs_base_url_dev = ""  # type: str
+    sqs_base_url = "https://sqs.{region}.amazonaws.com/{aws_account}/{queue_name}"
+    sqs_base_url_dev = "http://localhost:4566"  # type: str
     dev_profile = "local"  # type: str
 
     def __init__(self, region, sqs_base_url, sqs_base_url_dev, dev_profile):
@@ -105,7 +105,7 @@ class AWSConfig(object):
 class AppConfig(object):
     """システム全体の実行環境、ロギング、およびリージョン構成を統合管理する不変設定クラス。"""
 
-    env = "prod"  # type: str
+    env = AppEnv.PROD.value  # type: str
     log = None  # type: LogConfig
     aws = None  # type: AWSConfig
 
@@ -121,7 +121,9 @@ class AppConfig(object):
         """【Enum型検証・型ヒント版】環境変数からインフラ仕様をロードし、厳格に検証。"""
 
         # 1. ログ最大サイズの検証 (LOG_MAX_SIZE_MB)
-        raw_max_size = os.environ.get("LOG_MAX_SIZE_MB", "10").strip()
+        raw_max_size = os.environ.get(
+            "LOG_MAX_SIZE_MB", str(LogConfig.max_size_mb)
+        ).strip()
         try:
             max_size_mb = int(raw_max_size)
             if max_size_mb <= 0:
@@ -134,7 +136,9 @@ class AppConfig(object):
             sys.exit(1)
 
         # 2. ログバックアップ世代数の検証 (LOG_BACKUP_COUNT)
-        raw_backup_count = os.environ.get("LOG_BACKUP_COUNT", "10").strip()
+        raw_backup_count = os.environ.get(
+            "LOG_BACKUP_COUNT", str(LogConfig.backup_count)
+        ).strip()
         try:
             backup_count = int(raw_backup_count)
             if backup_count < 0:
@@ -149,7 +153,7 @@ class AppConfig(object):
             sys.exit(1)
 
         # 3. 【Enum置換】ログレベル値の列挙検証 (LOG_LEVEL)
-        log_level = os.environ.get("LOG_LEVEL", "INFO").upper().strip()
+        log_level = os.environ.get("LOG_LEVEL", LogLevel.INFO.value).upper().strip()
         if log_level not in LogLevel.__members__:
             sys.stderr.write(
                 "AppConfig: error: environment variable 'LOG_LEVEL' "
@@ -160,7 +164,7 @@ class AppConfig(object):
             sys.exit(1)
 
         # 4. 【Enum置換】実行環境名の列挙検証 (ENV)
-        env_input = os.environ.get("ENV", "prod").upper().strip()
+        env_input = os.environ.get("ENV", AppEnv.PROD.value).upper().strip()
         if env_input not in AppEnv.__members__:
             # 画面に出力する際は、Enumで小文字定義されている本来のバリュー一覧を展開
             allowed_envs = [e.value for e in AppEnv]
@@ -178,22 +182,24 @@ class AppConfig(object):
         # 厳格に型変換されたパラメータで不変の子クラスインスタンスを生成
         log_obj = LogConfig(
             level=LogLevel[log_level].value,
-            dir_path=os.environ.get("LOG_DIR", "logs").strip(),
-            file_name=os.environ.get("LOG_FILE_NAME", "monitor.log").strip(),
+            dir_path=os.environ.get("LOG_DIR", LogConfig.dir).strip(),
+            file_name=os.environ.get("LOG_FILE_NAME", LogConfig.file_name).strip(),
             max_size_mb=max_size_mb,
             backup_count=backup_count,
         )
 
         aws_obj = AWSConfig(
-            region=os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-1")
+            region=os.environ.get("AWS_DEFAULT_REGION", AWSConfig.region)
             .lower()
             .strip(),
-            sqs_base_url="https://sqs.{region}.amazonaws.com/{aws_account}/{queue_name}",
+            sqs_base_url=AWSConfig.sqs_base_url.strip(),
             sqs_base_url_dev=os.environ.get(
-                "AWS_SQS_BASE_URL_DEV", "http://localhost:4566"
+                "AWS_SQS_BASE_URL_DEV", AWSConfig.sqs_base_url_dev
             ).strip()
             + "/{aws_account}/{queue_name}",
-            dev_profile=os.environ.get("AWS_DEV_PROFILE", "local").lower().strip(),
+            dev_profile=os.environ.get("AWS_DEV_PROFILE", AWSConfig.dev_profile)
+            .lower()
+            .strip(),
         )
 
         return cls(env=env_value, log_config=log_obj, aws_config=aws_obj)

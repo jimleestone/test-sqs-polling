@@ -7,10 +7,11 @@
 """
 
 import logging
+import os
 import sys
 import signal
 
-from argument_models import AppConfig, GlueJobMonitorConfig, GlueJobState
+from argument_models import AppConfig, AppEnv, GlueJobMonitorConfig, GlueJobState
 from utils import parse_args_for
 from monitor_base import SQSMonitorEngine
 from logger_config import setup_logging
@@ -167,12 +168,37 @@ def main():
     # これにより、kill コマンドや ECS Fargate、Kubernetes 等からの停止命令を安全にキャッチします
     signal.signal(signal.SIGTERM, handle_sigterm)
 
-    logger.info("Initializing Glue Job Monitor application package.")
-    logger.debug(
-        "Log Settings -> Directory: %s | Retention: %s generations",
-        app_config.log.dir,
-        app_config.log.backup_count,
+    # -------------------------------------------------------------------------
+    # AppConfigデバッグダンプ
+    # -------------------------------------------------------------------------
+    # LOG_LEVEL=DEBUG 時のみ、ロードされたすべてのインフラ・ログ設定値が美しくログに刻まれます。
+    logger.debug("=== [INFRASTRUCTURE APP_CONFIG LOG-DUMP] ===")
+    dump_targets = {
+        "env": app_config.env,
+        "log.level": app_config.log.level,
+        "log.dir": app_config.log.dir,
+        "log.file_name": app_config.log.file_name,
+        "log.max_size_mb": app_config.log.max_size_mb,
+        "log.backup_count": app_config.log.backup_count,
+        "aws.region": app_config.aws.region,
+    }
+
+    # 開発環境（dev）の時だけ、開発用の認証・接続トポロジー情報を動的にインジェクション
+    if app_config.env == AppEnv.DEV.value:
+        dump_targets["aws.sqs_base_url_dev"] = app_config.aws.sqs_base_url_dev
+        dump_targets["aws.dev_profile"] = app_config.aws.dev_profile
+    else:
+        dump_targets["aws.sqs_base_url"] = app_config.aws.sqs_base_url
+
+    for prop_path, prop_val in sorted(dump_targets.items()):
+        logger.debug("Property: %-25s | Value: %s", prop_path, prop_val)
+
+    logger.debug("==================================================")
+
+    logger.info(
+        "Initializing Glue Job Monitor application package. [PID: %s]", os.getpid()
     )
+    logger.info("Initializing Glue Job Monitor application package.")
 
     try:
         # 動的汎用パーサーを介して、クレンジング・フォールバック済みの不変設定オブジェクトを生成
