@@ -8,6 +8,8 @@
 
 import json
 import logging
+import os
+import signal
 import subprocess
 
 from argument_models import AppConfig, AppEnv
@@ -76,6 +78,7 @@ class SQSClient(object):
             ["/bin/bash", "-l", "-c", full_cmd_str],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            preexec_fn=os.setsid,  # プロセスグループを作成して、タイムアウト時に全ての子プロセスを殺せるようにする
         )
 
         try:
@@ -104,7 +107,10 @@ class SQSClient(object):
 
         except subprocess.TimeoutExpired:
             # 30秒の制限を超えた場合、プロセスを即座に殺して常駐メインループのハングを防止
-            process.kill()
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except OSError:
+                pass  # 既に死んでいる場合の予期せぬエラーを安全に無視
 
             # 死体をOSから回収し、リソースリークを防ぐために再度待機なしで呼び出す
             stdout_output, stderr_output = process.communicate()
