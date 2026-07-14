@@ -6,6 +6,7 @@
 適切なメッセージ評価クロージャを依存注入（Dependency Injection）して駆動させます。
 """
 
+from datetime import datetime
 import logging
 import os
 import sys
@@ -26,6 +27,9 @@ logger = logging.getLogger(__name__)
 # 評価関数 `evaluate_workflow_with_list` 内で、ワークフロー全体の最終正常完了を
 # 判定するための絶対基準としてグローバル参照されます。
 LAST_JOB_NAME = None
+
+# プログラムが起動した瞬間のUTC時刻（ISO 8601フォーマット）をガッチリ固定で記録
+BOOT_TIME_STR = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def evaluate_single_job(event_time, detail):
@@ -48,6 +52,21 @@ def evaluate_single_job(event_time, detail):
     job_run_id = detail.get("jobRunId")
     current_state = detail.get("state")
     detail_message = detail.get("message")
+
+    # -------------------------------------------------------------------------
+    # 今回の起動時刻（BOOT_TIME_STR）よりも古い過去メッセージの強制パージ
+    # -------------------------------------------------------------------------
+    if event_time < BOOT_TIME_STR:
+        logger.warning(
+            "[STALE-IGNORE] Found past message for Job: %s, Run ID: %s (Time: %s). "
+            "This was issued before current monitoring execution (%s). Ignoring completely.",
+            job_name,
+            job_run_id,
+            event_time,
+            BOOT_TIME_STR,
+        )
+        # is_trigger=False (ループを止めない), is_failed=False (エラーにしない) で安全に流す
+        return False, False, None
 
     # フィルタリングに合致した監視対象イベントの進行状況を規約に準拠して出力
     logger.info(
@@ -99,6 +118,20 @@ def evaluate_workflow_with_list(event_time, detail):
     job_run_id = detail.get("jobRunId")
     job_state = detail.get("state")
     detail_message = detail.get("message")
+
+    # -------------------------------------------------------------------------
+    # 今回の起動時刻（BOOT_TIME_STR）よりも古い過去メッセージの強制パージ
+    # -------------------------------------------------------------------------
+    if event_time < BOOT_TIME_STR:
+        logger.warning(
+            "[STALE-IGNORE] Found past message for Job: %s, Run ID: %s (Time: %s). "
+            "This was issued before current monitoring execution (%s). Ignoring completely.",
+            job_name,
+            job_run_id,
+            event_time,
+            BOOT_TIME_STR,
+        )
+        return False, False, None
 
     # ワークフロー監視対象に合致したイベントの進行状況を出力
     logger.info(
